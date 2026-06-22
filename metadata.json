@@ -1,0 +1,6 @@
+{
+  "name": "CLIPR.AI",
+  "description": "A free Opus Clip alternative to transcribe, cut, combine, and add subtitles to YouTube videos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
