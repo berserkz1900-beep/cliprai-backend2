@@ -96,9 +96,22 @@ async function processClip(jobId, data) {
   try {
     // Step 1: Download video
     updateJob(jobId, 10, "⏳ Downloading video...");
-    // Let's check if we already have the raw video downloaded to save bandwith/disk in fast trials
+    // Let's check if we already have the raw video downloaded to save bandwidth/disk in fast trials
     if (!fs.existsSync(rawVideo)) {
-      await run(`yt-dlp -f "bestvideo[height<=1080]+bestaudio/best" -o "${rawVideo}" "${url}"`);
+      // ✅ FIXED: Added anti-429 flags to bypass YouTube bot detection
+      await run(
+        `yt-dlp -f "bestvideo[height<=1080]+bestaudio/best" ` +
+        `-o "${rawVideo}" ` +
+        `--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" ` +
+        `--add-header "Accept-Language:en-US,en;q=0.9" ` +
+        `--add-header "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" ` +
+        `--no-check-certificates ` +
+        `--sleep-interval 2 ` +
+        `--max-sleep-interval 5 ` +
+        `--retries 3 ` +
+        `--no-playlist ` +
+        `"${url}"`
+      );
     } else {
       console.log(`Using cached raw video at ${rawVideo}`);
     }
@@ -226,7 +239,6 @@ app.post("/transcript", async (req, res) => {
 
   const supadataKey = process.env.SUPADATA_KEY;
   if (!supadataKey) {
-    // Elegant fallback guidance if key is missing
     console.warn("⚠️ SUPADATA_KEY environment variable is missing.");
     return res.status(401).json({
       success: false,
@@ -264,7 +276,6 @@ app.post("/transcript", async (req, res) => {
     let wordCount = 0;
 
     if (data.transcript && Array.isArray(data.transcript)) {
-      // Map segments
       formattedTranscript = data.transcript.map(seg => {
         const offset = typeof seg.offset === 'number' ? seg.offset : (typeof seg.start === 'number' ? seg.start * 1000 : 0);
         const totalSecs = Math.floor(offset / 1000);
@@ -282,7 +293,6 @@ app.post("/transcript", async (req, res) => {
       formattedTranscript = data.transcript;
       wordCount = formattedTranscript.split(/\s+/).filter(Boolean).length;
     } else {
-      // fallback
       formattedTranscript = "Transcript received, but no parseable structure detected.";
     }
 
@@ -359,7 +369,7 @@ app.get("/status/:jobId", (req, res) => {
 // GET /download/:filename
 app.get("/download/:filename", (req, res) => {
   const { filename } = req.params;
-  const safeFilename = path.basename(filename); // Prevent path traversal
+  const safeFilename = path.basename(filename);
   const filePath = path.join("/tmp/outputs", safeFilename);
 
   if (!fs.existsSync(filePath)) {
