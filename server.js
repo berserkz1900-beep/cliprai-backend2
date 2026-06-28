@@ -93,71 +93,84 @@ async function processClip(jobId, data) {
   }
 
   try {
-    // Step 1: Get direct video URL from Piped API (no bot detection, no cookies needed)
+    // Step 1: Get direct video URL from cobalt.tools API
     updateJob(jobId, 10, "⏳ Fetching video stream...");
-
-    // Try multiple Piped instances in case one is down
-    const pipedInstances = [
-      "https://pipedapi.kavin.rocks",
-      "https://piped-api.garudalinux.org",
-      "https://api.piped.yt"
-    ];
 
     let videoStreamUrl = null;
     let audioStreamUrl = null;
 
-    for (const instance of pipedInstances) {
-      try {
-        console.log(`Trying Piped instance: ${instance}`);
-        const pipedRes = await fetch(`${instance}/streams/${videoId}`);
-        if (!pipedRes.ok) continue;
-        const pipedData = await pipedRes.json();
+    try {
+      console.log("Trying cobalt.tools API...");
+      const cobaltRes = await fetch("https://api.cobalt.tools/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        body: JSON.stringify({
+          url: url,
+          videoQuality: "1080",
+          filenameStyle: "basic"
+        })
+      });
 
-        // Get best video stream (no audio)
-        const videoStreams = (pipedData.videoStreams || [])
-          .filter(s => s.videoOnly && s.quality && parseInt(s.quality) <= 1080)
-          .sort((a, b) => parseInt(b.quality) - parseInt(a.quality));
+      if (cobaltRes.ok) {
+        const cobaltData = await cobaltRes.json();
+        console.log("Cobalt response:", JSON.stringify(cobaltData).substring(0, 300));
 
-        // Get best audio stream
-        const audioStreams = (pipedData.audioStreams || [])
-          .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-
-        if (videoStreams.length > 0 && audioStreams.length > 0) {
-          videoStreamUrl = videoStreams[0].url;
-          audioStreamUrl = audioStreams[0].url;
-          console.log(`✅ Got streams from ${instance}`);
-          break;
+        if (cobaltData.status === "stream" || cobaltData.status === "redirect") {
+          videoStreamUrl = cobaltData.url;
+          console.log("✅ Got stream URL from cobalt.tools");
+        } else if (cobaltData.status === "picker" && cobaltData.picker) {
+          // Has separate video/audio
+          videoStreamUrl = cobaltData.picker[0]?.url;
+          audioStreamUrl = cobaltData.audio;
+          console.log("✅ Got picker URLs from cobalt.tools");
         }
+      }
+    } catch (e) {
+      console.warn("cobalt.tools failed:", e.message);
+    }
 
-        // Fallback: try combined stream
-        if (!videoStreamUrl && pipedData.videoStreams && pipedData.videoStreams.length > 0) {
-          const combined_stream = pipedData.videoStreams.find(s => !s.videoOnly);
-          if (combined_stream) {
-            videoStreamUrl = combined_stream.url;
-            console.log(`✅ Got combined stream from ${instance}`);
-            break;
+    // Fallback: try invidious API
+    if (!videoStreamUrl) {
+      try {
+        console.log("Trying Invidious API fallback...");
+        const invRes = await fetch(`https://invidious.jing.rocks/api/v1/videos/${videoId}?fields=adaptiveFormats,formatStreams`);
+        if (invRes.ok) {
+          const invData = await invRes.json();
+          const formats = invData.adaptiveFormats || invData.formatStreams || [];
+          const videoFormats = formats
+            .filter(f => f.type && f.type.includes("video/mp4") && !f.type.includes("audio"))
+            .sort((a, b) => (parseInt(b.resolution) || 0) - (parseInt(a.resolution) || 0));
+          const audioFormats = formats
+            .filter(f => f.type && f.type.includes("audio/mp4"))
+            .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+
+          if (videoFormats.length > 0) {
+            videoStreamUrl = videoFormats[0].url;
+            audioStreamUrl = audioFormats[0]?.url || null;
+            console.log("✅ Got stream from Invidious");
           }
         }
       } catch (e) {
-        console.warn(`Piped instance ${instance} failed:`, e.message);
+        console.warn("Invidious fallback failed:", e.message);
       }
     }
 
     if (!videoStreamUrl) {
-      throw new Error("All Piped instances failed. Unable to fetch video stream.");
+      throw new Error("All download methods failed. YouTube is blocking requests from this server IP. Please try again later.");
     }
 
-    // Step 2: Download video and audio streams using ffmpeg directly
+    // Step 2: Download video using ffmpeg directly from stream URL
     updateJob(jobId, 20, "⏳ Downloading video...");
 
     if (audioStreamUrl) {
-      // Download video and audio separately then merge
       const rawVideoOnly = `/tmp/${videoId}_video.mp4`;
       const rawAudioOnly = `/tmp/${videoId}_audio.mp4`;
       await run(`ffmpeg -i "${videoStreamUrl}" -c copy "${rawVideoOnly}" -y`);
       await run(`ffmpeg -i "${audioStreamUrl}" -c copy "${rawAudioOnly}" -y`);
       await run(`ffmpeg -i "${rawVideoOnly}" -i "${rawAudioOnly}" -c copy "${rawVideo}" -y`);
-      // Cleanup
       [rawVideoOnly, rawAudioOnly].forEach(f => { try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {} });
     } else {
       await run(`ffmpeg -i "${videoStreamUrl}" -c copy "${rawVideo}" -y`);
