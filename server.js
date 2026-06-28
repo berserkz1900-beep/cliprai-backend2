@@ -96,10 +96,9 @@ async function processClip(jobId, data) {
   try {
     // Step 1: Download video
     updateJob(jobId, 10, "⏳ Downloading video...");
-    // Let's check if we already have the raw video downloaded to save bandwidth/disk in fast trials
-    if (!fs.existsSync(rawVideo)) {
-      // ✅ FIXED: Use Android player client to bypass JS runtime requirement and 403/429 errors
-      await run(
+
+    // ✅ Always download fresh — no caching to avoid wrong video bug
+    await run(
         `yt-dlp -f "bestvideo[height<=1080]+bestaudio/best" ` +
         `-o "${rawVideo}" ` +
         `--extractor-args "youtube:player_client=android" ` +
@@ -110,9 +109,6 @@ async function processClip(jobId, data) {
         `--no-playlist ` +
         `"${url}"`
       );
-    } else {
-      console.log(`Using cached raw video at ${rawVideo}`);
-    }
 
     // Step 2: Cut hook part
     updateJob(jobId, 30, "✂️ Cutting hook...");
