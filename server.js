@@ -83,32 +83,85 @@ async function processClip(jobId, data) {
   const combined = `/tmp/${jobId}_combined.mp4`;
   const final = `${outputDir}/${jobId}_final.mp4`;
 
-  // Detect availability of required cli tools
-  const hasYtDlp = await isCommandAvailable("yt-dlp");
+  // Detect availability of ffmpeg
   const hasFfmpeg = await isCommandAvailable("ffmpeg");
 
-  if (!hasYtDlp || !hasFfmpeg) {
-    console.warn("⚠️ yt-dlp or ffmpeg not found. Running in high-fidelity demo simulation mode.");
+  if (!hasFfmpeg) {
+    console.warn("⚠️ ffmpeg not found. Running in high-fidelity demo simulation mode.");
     await simulateClipProcessing(jobId, final);
     return;
   }
 
   try {
-    // Step 1: Download video
-    updateJob(jobId, 10, "⏳ Downloading video...");
+    // Step 1: Get direct video URL from Piped API (no bot detection, no cookies needed)
+    updateJob(jobId, 10, "⏳ Fetching video stream...");
 
-    // ✅ Always download fresh — no caching to avoid wrong video bug
-    await run(
-        `yt-dlp -f "bestvideo[height<=1080]+bestaudio/best" ` +
-        `-o "${rawVideo}" ` +
-        `--extractor-args "youtube:player_client=android" ` +
-        `--no-check-certificates ` +
-        `--sleep-interval 2 ` +
-        `--max-sleep-interval 5 ` +
-        `--retries 3 ` +
-        `--no-playlist ` +
-        `"${url}"`
-      );
+    // Try multiple Piped instances in case one is down
+    const pipedInstances = [
+      "https://pipedapi.kavin.rocks",
+      "https://piped-api.garudalinux.org",
+      "https://api.piped.yt"
+    ];
+
+    let videoStreamUrl = null;
+    let audioStreamUrl = null;
+
+    for (const instance of pipedInstances) {
+      try {
+        console.log(`Trying Piped instance: ${instance}`);
+        const pipedRes = await fetch(`${instance}/streams/${videoId}`);
+        if (!pipedRes.ok) continue;
+        const pipedData = await pipedRes.json();
+
+        // Get best video stream (no audio)
+        const videoStreams = (pipedData.videoStreams || [])
+          .filter(s => s.videoOnly && s.quality && parseInt(s.quality) <= 1080)
+          .sort((a, b) => parseInt(b.quality) - parseInt(a.quality));
+
+        // Get best audio stream
+        const audioStreams = (pipedData.audioStreams || [])
+          .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+
+        if (videoStreams.length > 0 && audioStreams.length > 0) {
+          videoStreamUrl = videoStreams[0].url;
+          audioStreamUrl = audioStreams[0].url;
+          console.log(`✅ Got streams from ${instance}`);
+          break;
+        }
+
+        // Fallback: try combined stream
+        if (!videoStreamUrl && pipedData.videoStreams && pipedData.videoStreams.length > 0) {
+          const combined_stream = pipedData.videoStreams.find(s => !s.videoOnly);
+          if (combined_stream) {
+            videoStreamUrl = combined_stream.url;
+            console.log(`✅ Got combined stream from ${instance}`);
+            break;
+          }
+        }
+      } catch (e) {
+        console.warn(`Piped instance ${instance} failed:`, e.message);
+      }
+    }
+
+    if (!videoStreamUrl) {
+      throw new Error("All Piped instances failed. Unable to fetch video stream.");
+    }
+
+    // Step 2: Download video and audio streams using ffmpeg directly
+    updateJob(jobId, 20, "⏳ Downloading video...");
+
+    if (audioStreamUrl) {
+      // Download video and audio separately then merge
+      const rawVideoOnly = `/tmp/${videoId}_video.mp4`;
+      const rawAudioOnly = `/tmp/${videoId}_audio.mp4`;
+      await run(`ffmpeg -i "${videoStreamUrl}" -c copy "${rawVideoOnly}" -y`);
+      await run(`ffmpeg -i "${audioStreamUrl}" -c copy "${rawAudioOnly}" -y`);
+      await run(`ffmpeg -i "${rawVideoOnly}" -i "${rawAudioOnly}" -c copy "${rawVideo}" -y`);
+      // Cleanup
+      [rawVideoOnly, rawAudioOnly].forEach(f => { try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {} });
+    } else {
+      await run(`ffmpeg -i "${videoStreamUrl}" -c copy "${rawVideo}" -y`);
+    }
 
     // Step 2: Cut hook part
     updateJob(jobId, 30, "✂️ Cutting hook...");
