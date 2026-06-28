@@ -152,7 +152,7 @@ async function processClip(jobId, data) {
       `drawtext=text='${escapedCaptionText}':fontsize=36:fontcolor=white:x=(w-text_w)/2:y=3*h/4:box=1:boxcolor=black@0.4:boxborderw=8`
     ].join(",");
 
-    await run(`ffmpeg -i "${combined}" -vf "${vf}" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -movflags +faststart "${final}" -y`);
+    await run(`ffmpeg -i "${combined}" -vf "${vf}" -c:v libx264 -preset ultrafast -crf 28 -c:a aac -b:a 96k -movflags +faststart -threads 1 "${final}" -y`);
 
     // Step 7: Cleanup temp files
     updateJob(jobId, 95, "🧹 Cleaning up...");
