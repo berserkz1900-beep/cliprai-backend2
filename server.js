@@ -98,13 +98,11 @@ async function processClip(jobId, data) {
     updateJob(jobId, 10, "⏳ Downloading video...");
     // Let's check if we already have the raw video downloaded to save bandwidth/disk in fast trials
     if (!fs.existsSync(rawVideo)) {
-      // ✅ FIXED: Added anti-429 flags to bypass YouTube bot detection
+      // ✅ FIXED: Use Android player client to bypass JS runtime requirement and 403/429 errors
       await run(
         `yt-dlp -f "bestvideo[height<=1080]+bestaudio/best" ` +
         `-o "${rawVideo}" ` +
-        `--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" ` +
-        `--add-header "Accept-Language:en-US,en;q=0.9" ` +
-        `--add-header "Accept:text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" ` +
+        `--extractor-args "youtube:player_client=android" ` +
         `--no-check-certificates ` +
         `--sleep-interval 2 ` +
         `--max-sleep-interval 5 ` +
@@ -417,3 +415,4 @@ async function initServer() {
 initServer().catch(err => {
   console.error("Critical error starting Express Server:", err);
 });
+
