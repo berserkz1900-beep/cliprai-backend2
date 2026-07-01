@@ -6,5 +6,5 @@ COPY package*.json ./
 RUN npm install
 COPY . .
 RUN mkdir -p /tmp/outputs
-EXPOSE 3000
+EXPOSE ${PORT:-3000}
 CMD ["node", "server.js"]
