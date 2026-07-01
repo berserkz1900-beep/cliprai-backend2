@@ -450,31 +450,12 @@ app.get("/download/:filename", (req, res) => {
   stream.pipe(res);
 });
 
-// INTEGRATE VITE FOR DEVELOPMENT OR SERVE STATIC IN PRODUCTION
-async function initServer() {
-  if (process.env.NODE_ENV !== "production") {
-    console.log("🛠️ Starting Express under Development mode with Vite handler...");
-    const { createServer } = await import("vite");
-    const viteInstance = await createServer({
-      server: { middlewareMode: true },
-      appType: "spa"
-    });
-    app.use(viteInstance.middlewares);
-  } else {
-    console.log("📦 Starting Express under Production mode serving static files...");
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-  }
-
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 CLIPR.AI Full-Stack Server listening at http://0.0.0.0:${PORT}`);
-  });
-}
-
-initServer().catch(err => {
-  console.error("Critical error starting Express Server:", err);
+// API-only server — frontend is served separately via Netlify
+app.get("/", (req, res) => {
+  res.json({ status: "CLIPR.AI Backend API is running!", version: "2.0" });
 });
 
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 CLIPR.AI API Server listening at http://0.0.0.0:${PORT}`);
+});
+                           
